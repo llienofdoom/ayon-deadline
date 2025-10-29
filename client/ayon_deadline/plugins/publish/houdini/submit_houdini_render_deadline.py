@@ -373,8 +373,53 @@ class HoudiniSubmitDeadlineUsdRender(HoudiniSubmitDeadline):
     label = "Submit Render to Deadline (USD)"
     families = ["usdrender"]
 
+    # Override default export chunk size for USD renders to ensure
+    # single USD files are exported in one go
+    export_chunk_size = 1000
+
+    @classmethod
+    def get_attribute_defs(cls):
+        from ayon_core.lib import BoolDef
+
+        # Get parent attributes and add USD-specific ones
+        defs = super(HoudiniSubmitDeadlineUsdRender, cls).get_attribute_defs()
+
+        # Add denoise and publish_to_ayon toggles
+        defs.extend([
+            BoolDef(
+                "denoise",
+                label="Enable Denoising",
+                tooltip="Submit a denoise job after rendering completes",
+                default=True
+            ),
+            BoolDef(
+                "publish_to_ayon",
+                label="Publish to AYON",
+                tooltip="Submit a publish job to AYON after rendering completes",
+                default=True
+            )
+        ])
+
+        return defs
+
     def from_published_scene(self, replace_in_path=True):
         # Do not use published workfile paths for USD Render ROP because the
         # Export Job doesn't seem to occur using the published path either, so
         # output paths then do not match the actual rendered paths
         return
+
+    def process(self, instance):
+        # Get our attribute values and expose them to instance.data
+        # so other plugins can access denoise and publish_to_ayon settings
+        attribute_values = self.get_attr_values_from_data(instance.data)
+
+        # Expose denoise and publish_to_ayon to instance.data for other plugins
+        if "denoise" in attribute_values:
+            instance.data["denoise"] = attribute_values["denoise"]
+            self.log.debug(f"Set instance.data['denoise'] = {attribute_values['denoise']}")
+
+        if "publish_to_ayon" in attribute_values:
+            instance.data["publish_to_ayon"] = attribute_values["publish_to_ayon"]
+            self.log.debug(f"Set instance.data['publish_to_ayon'] = {attribute_values['publish_to_ayon']}")
+
+        super().process(instance)

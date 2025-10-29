@@ -156,6 +156,13 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
         Returns:
             (str): deadline_publish_job_id
         """
+        # Check publish_to_ayon (set by HoudiniSubmitDeadlineUsdRender plugin)
+        publish_to_ayon = instance.data.get("publish_to_ayon", True)
+        self.log.info(f"Publish to AYON: {publish_to_ayon}")
+
+        if not publish_to_ayon:
+            self.log.info("Publishing off, skipping Deadline publish job ...")
+            return
         data = instance.data.copy()
         product_name = data["productName"]
         job_name = "Publish - {}".format(product_name)
@@ -411,10 +418,16 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
         )
 
         # Inject deadline url to instances to query DL for job id for overrides
+        denoise = instance.data.get("denoise", True)        
+
         for inst in instances:
             inst["deadline"] = deepcopy(instance.data["deadline"])
-            inst["deadline"].pop("job_info")
-
+            inst["deadline"].pop("job_info")        
+            if denoise:
+                for representation in inst["representations"]:
+                    stagingDir = representation["stagingDir"]
+                    stagingDir = stagingDir + '/combined'
+                    representation["stagingDir"] = stagingDir
         # publish job file
         publish_job = {
             "folderPath": instance_skeleton_data["folderPath"],
@@ -565,7 +578,7 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
                     files = representation["files"]
                 for file_name in files:
                     full_path = os.path.join(
-                        representation["stagingDir"], file_name
+                       representation["stagingDir"], file_name
                     )
                     full_path = anatomy.fill_root(full_path)
                     job_info.AssetDependency += full_path
