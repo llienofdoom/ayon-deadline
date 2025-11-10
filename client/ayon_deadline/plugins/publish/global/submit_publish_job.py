@@ -368,7 +368,7 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
         else:
             representations = prepare_representations(
                 instance_skeleton_data,
-                instance.data.get("expectedFiles"),
+                expected_files,
                 anatomy,
                 aov_filter,
                 self.skip_integration_repre_list,
@@ -419,14 +419,31 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
 
         # Inject deadline url to instances to query DL for job id for overrides
         denoise = instance.data.get("denoise", True)        
-
+        project_settings = instance.context.data["project_settings"]
+        denoise_settings = project_settings["luma-denoise"]
         for inst in instances:
             inst["deadline"] = deepcopy(instance.data["deadline"])
             inst["deadline"].pop("job_info")        
             if denoise:
                 for representation in inst["representations"]:
+                    # only for image sequences
+                    expected_files = instance.data.get("expectedFiles", [])
                     stagingDir = representation["stagingDir"]
-                    stagingDir = stagingDir + '/combined'
+                    stagingDir = os.path.join(stagingDir, denoise_settings.get("output_subdirectory", "combined"))
+
+                    # Add denoised files to representation
+                    for file in expected_files:
+                        if file in representation["files"]:
+                            # Add denoised file
+                            denoised_file = os.path.join(stagingDir, os.path.basename(file))
+                            #self.log.info(f"Adding denoised file: {denoised_file}")
+                            # check if files is list or str
+                            if isinstance(representation["files"], list): 
+                                # add denoised file to list
+                                representation["files"].append(denoised_file)
+                            # elif single file
+                            elif isinstance(representation["files"], str):
+                                representation["files"] = [representation["files"], denoised_file]
                     representation["stagingDir"] = stagingDir
         # publish job file
         publish_job = {
@@ -582,3 +599,47 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
                     )
                     full_path = anatomy.fill_root(full_path)
                     job_info.AssetDependency += full_path
+    
+    def _get_dependency_job_ids(self, instance):
+        """Determine which jobs the review extraction should depend on.
+
+        Priority:
+        1. OIIO combine job (if exists - means denoise is enabled)
+        2. Denoise job (if exists but no OIIO)
+        3. Render job (fallback)
+        """
+        dependency_ids = []
+
+        # Check for OIIO combine job (highest priority)
+        oiio_job_id = instance.data.get("oiio_combine_job_id")
+        if oiio_job_id:
+            self.log.info(
+                f"Review job will depend on OIIO combine job: {oiio_job_id}"
+            )
+            dependency_ids.append(oiio_job_id)
+            return dependency_ids
+
+        # Check for denoise job
+        denoise_job_id = instance.data.get("denoise_job_id")
+        if denoise_job_id:
+            self.log.info(f"Review job will depend on denoise job: {denoise_job_id}")
+            dependency_ids.append(denoise_job_id)
+            return dependency_ids
+
+        # Fallback to render job
+        render_job_id = None
+        if "deadlineSubmissionJob" in instance.data:
+            submission_job = instance.data["deadlineSubmissionJob"]
+            if isinstance(submission_job, dict) and "_id" in submission_job:
+                render_job_id = submission_job["_id"]
+            elif hasattr(submission_job, '_id'):
+                render_job_id = submission_job._id
+
+        if render_job_id:
+            self.log.info(f"Review job will depend on render job: {render_job_id}")
+            self.log.info(f"NOTE: Main render publish job will ALSO depend on same job (parallel execution)")
+            dependency_ids.append(render_job_id)
+            return dependency_ids
+
+        self.log.warning("No dependency jobs found for review extraction")
+        return None

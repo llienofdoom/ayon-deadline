@@ -8,7 +8,8 @@ from ayon_core.pipeline import AYONPyblishPluginMixin
 from ayon_core.lib import (
     is_in_tests,
     TextDef,
-    NumberDef
+    NumberDef,
+    UILabelDef
 )
 from ayon_deadline import abstract_submit_deadline
 
@@ -385,7 +386,11 @@ class HoudiniSubmitDeadlineUsdRender(HoudiniSubmitDeadline):
         defs = super(HoudiniSubmitDeadlineUsdRender, cls).get_attribute_defs()
 
         # Add denoise and publish_to_ayon toggles
+
         defs.extend([
+            UILabelDef(
+                "Luma Tools"
+            ),
             BoolDef(
                 "denoise",
                 label="Enable Denoising",
