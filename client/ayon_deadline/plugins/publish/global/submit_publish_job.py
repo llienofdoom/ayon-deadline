@@ -588,13 +588,6 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
 
     
     def _get_dependency_job_ids(self, instance):
-        """Determine which jobs the review extraction should depend on.
-
-        Priority:
-        1. OIIO combine job (if exists - means denoise is enabled)
-        2. Denoise job (if exists but no OIIO)
-        3. Render job (fallback)
-        """
         dependency_ids = []
 
         # Check for OIIO combine job (highest priority)
@@ -604,13 +597,6 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
                 f"Review job will depend on OIIO combine job: {oiio_job_id}"
             )
             dependency_ids.append(oiio_job_id)
-            return dependency_ids
-
-        # Check for denoise job
-        denoise_job_id = instance.data.get("denoise_job_id")
-        if denoise_job_id:
-            self.log.info(f"Review job will depend on denoise job: {denoise_job_id}")
-            dependency_ids.append(denoise_job_id)
             return dependency_ids
 
         # Fallback to render job
@@ -624,7 +610,6 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
 
         if render_job_id:
             self.log.info(f"Review job will depend on render job: {render_job_id}")
-            self.log.info(f"NOTE: Main render publish job will ALSO depend on same job (parallel execution)")
             dependency_ids.append(render_job_id)
             return dependency_ids
 
