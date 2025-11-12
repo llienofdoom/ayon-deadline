@@ -282,6 +282,22 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
             )
             return instance.data["bakingSubmissionJobs"]
 
+        # Check for OIIO combine job (highest priority for denoise workflow)
+        oiio_job_id = instance.data.get("oiio_combine_job_id")
+        if oiio_job_id:
+            self.log.info(
+                f"Publish job will depend on OIIO combine job: {oiio_job_id}"
+            )
+            return [oiio_job_id]
+
+        # Check for denoise job
+        denoise_job_id = instance.data.get("denoise_job_id")
+        if denoise_job_id:
+            self.log.info(
+                f"Publish job will depend on denoise job: {denoise_job_id}"
+            )
+            return [denoise_job_id]
+
         if render_job and render_job.get("_id"):
             return [render_job["_id"]]
         return None
@@ -418,13 +434,14 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
         )
 
         # Inject deadline url to instances to query DL for job id for overrides
-        denoise = instance.data.get("denoise", True)        
-        project_settings = instance.context.data["project_settings"]
-        denoise_settings = project_settings["luma-denoise"]
-        for inst in instances:
-            inst["deadline"] = deepcopy(instance.data["deadline"])
-            inst["deadline"].pop("job_info")        
-            if denoise:
+        denoise = instance.data.get("denoise", True)
+        if denoise:
+            project_settings = instance.context.data["project_settings"]
+            denoise_settings = project_settings["luma-denoise"]
+
+            for inst in instances:
+                inst["deadline"] = deepcopy(instance.data["deadline"])
+                inst["deadline"].pop("job_info")
                 for representation in inst["representations"]:
                     # only for image sequences
                     expected_files = instance.data.get("expectedFiles", [])
@@ -436,15 +453,19 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
                         if file in representation["files"]:
                             # Add denoised file
                             denoised_file = os.path.join(stagingDir, os.path.basename(file))
-                            #self.log.info(f"Adding denoised file: {denoised_file}")
                             # check if files is list or str
-                            if isinstance(representation["files"], list): 
+                            if isinstance(representation["files"], list):
                                 # add denoised file to list
                                 representation["files"].append(denoised_file)
                             # elif single file
                             elif isinstance(representation["files"], str):
                                 representation["files"] = [representation["files"], denoised_file]
                     representation["stagingDir"] = stagingDir
+        else:
+            # Original code path - inject deadline data to instances
+            for inst in instances:
+                inst["deadline"] = deepcopy(instance.data["deadline"])
+                inst["deadline"].pop("job_info")
         # publish job file
         publish_job = {
             "folderPath": instance_skeleton_data["folderPath"],
