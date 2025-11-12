@@ -282,21 +282,10 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
             )
             return instance.data["bakingSubmissionJobs"]
 
-        # Check for OIIO combine job (highest priority for denoise workflow)
-        oiio_job_id = instance.data.get("oiio_combine_job_id")
-        if oiio_job_id:
-            self.log.info(
-                f"Publish job will depend on OIIO combine job: {oiio_job_id}"
-            )
-            return [oiio_job_id]
-
-        # Check for denoise job
-        denoise_job_id = instance.data.get("denoise_job_id")
-        if denoise_job_id:
-            self.log.info(
-                f"Publish job will depend on denoise job: {denoise_job_id}"
-            )
-            return [denoise_job_id]
+        # LUMA DENOISE: Check for denoise/OIIO job dependencies
+        denoise_deps = self._check_denoise_dependencies(instance)
+        if denoise_deps:
+            return denoise_deps
 
         if render_job and render_job.get("_id"):
             return [render_job["_id"]]
@@ -384,7 +373,7 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
         else:
             representations = prepare_representations(
                 instance_skeleton_data,
-                expected_files,
+                instance.data.get("expectedFiles"),
                 anatomy,
                 aov_filter,
                 self.skip_integration_repre_list,
@@ -433,39 +422,9 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
             instance, render_job, instances, rootless_metadata_path
         )
 
-        # Inject deadline url to instances to query DL for job id for overrides
-        denoise = instance.data.get("denoise", True)
-        if denoise:
-            project_settings = instance.context.data["project_settings"]
-            denoise_settings = project_settings["luma-denoise"]
+        # LUMA DENOISE: Inject denoise data to instances if enabled
+        self._inject_denoise_data_to_instances(instance, instances)
 
-            for inst in instances:
-                inst["deadline"] = deepcopy(instance.data["deadline"])
-                inst["deadline"].pop("job_info")
-                for representation in inst["representations"]:
-                    # only for image sequences
-                    expected_files = instance.data.get("expectedFiles", [])
-                    stagingDir = representation["stagingDir"]
-                    stagingDir = os.path.join(stagingDir, denoise_settings.get("output_subdirectory", "combined"))
-
-                    # Add denoised files to representation
-                    for file in expected_files:
-                        if file in representation["files"]:
-                            # Add denoised file
-                            denoised_file = os.path.join(stagingDir, os.path.basename(file))
-                            # check if files is list or str
-                            if isinstance(representation["files"], list):
-                                # add denoised file to list
-                                representation["files"].append(denoised_file)
-                            # elif single file
-                            elif isinstance(representation["files"], str):
-                                representation["files"] = [representation["files"], denoised_file]
-                    representation["stagingDir"] = stagingDir
-        else:
-            # Original code path - inject deadline data to instances
-            for inst in instances:
-                inst["deadline"] = deepcopy(instance.data["deadline"])
-                inst["deadline"].pop("job_info")
         # publish job file
         publish_job = {
             "folderPath": instance_skeleton_data["folderPath"],
@@ -664,3 +623,98 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
 
         self.log.warning("No dependency jobs found for review extraction")
         return None
+
+    # =========================================================================
+    # LUMA DENOISE WORKFLOW EXTENSIONS
+    # Custom methods for denoise/OIIO workflow support
+    # These can be safely removed if reverting to upstream version
+    # =========================================================================
+
+    def _inject_denoise_data_to_instances(self, instance, instances):
+        """Inject denoise-specific data into instances.
+
+        This handles updating the staging directory and file paths
+        for instances when denoise workflow is enabled.
+
+        Args:
+            instance: The original publish instance
+            instances: List of instances created from skeleton
+        """
+        denoise = instance.data.get("denoise", True)
+        if not denoise:
+            # Original code path - just inject deadline data
+            for inst in instances:
+                inst["deadline"] = deepcopy(instance.data["deadline"])
+                inst["deadline"].pop("job_info")
+            return
+
+        # Denoise is enabled - update staging dirs and files
+        project_settings = instance.context.data["project_settings"]
+        denoise_settings = project_settings["luma-denoise"]
+
+        for inst in instances:
+            inst["deadline"] = deepcopy(instance.data["deadline"])
+            inst["deadline"].pop("job_info")
+
+            for representation in inst["representations"]:
+                # only for image sequences
+                expected_files = instance.data.get("expectedFiles", [])
+                stagingDir = representation["stagingDir"]
+                stagingDir = os.path.join(
+                    stagingDir,
+                    denoise_settings.get("output_subdirectory", "combined")
+                )
+
+                # Add denoised files to representation
+                for file in expected_files:
+                    if file in representation["files"]:
+                        # Add denoised file
+                        denoised_file = os.path.join(
+                            stagingDir, os.path.basename(file)
+                        )
+                        # check if files is list or str
+                        if isinstance(representation["files"], list):
+                            # add denoised file to list
+                            representation["files"].append(denoised_file)
+                        # elif single file
+                        elif isinstance(representation["files"], str):
+                            representation["files"] = [
+                                representation["files"], denoised_file
+                            ]
+                representation["stagingDir"] = stagingDir
+
+    def _check_denoise_dependencies(self, instance):
+        """Check for denoise/OIIO job dependencies.
+
+        Returns the appropriate dependency job ID for denoise workflow.
+        Priority:
+        1. OIIO combine job (if exists)
+        2. Denoise job (if exists but no OIIO)
+        3. None (use default behavior)
+
+        Args:
+            instance: The publish instance
+
+        Returns:
+            list or None: List with single job ID, or None
+        """
+        # Check for OIIO combine job (highest priority for denoise workflow)
+        oiio_job_id = instance.data.get("oiio_combine_job_id")
+        if oiio_job_id:
+            self.log.info(
+                f"Publish job will depend on OIIO combine job: {oiio_job_id}"
+            )
+            return [oiio_job_id]
+
+        # Check for denoise job
+        denoise_job_id = instance.data.get("denoise_job_id")
+        if denoise_job_id:
+            self.log.info(
+                f"Publish job will depend on denoise job: {denoise_job_id}"
+            )
+            return [denoise_job_id]
+
+        return None
+
+    # END LUMA DENOISE WORKFLOW EXTENSIONS
+    # =========================================================================
