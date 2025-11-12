@@ -579,6 +579,13 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
                     )
                     full_path = anatomy.fill_root(full_path)
                     job_info.AssetDependency += full_path
+                    
+                    
+    # =========================================================================
+    # LUMA DENOISE 
+    # Custom methods for denoise stuff to make upstream conflicts easier to merge
+    # =========================================================================
+
     
     def _get_dependency_job_ids(self, instance):
         """Determine which jobs the review extraction should depend on.
@@ -623,12 +630,6 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
 
         self.log.warning("No dependency jobs found for review extraction")
         return None
-
-    # =========================================================================
-    # LUMA DENOISE WORKFLOW EXTENSIONS
-    # Custom methods for denoise/OIIO workflow support
-    # These can be safely removed if reverting to upstream version
-    # =========================================================================
 
     def _inject_denoise_data_to_instances(self, instance, instances):
         """Inject denoise-specific data into instances.
@@ -715,6 +716,3 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
             return [denoise_job_id]
 
         return None
-
-    # END LUMA DENOISE WORKFLOW EXTENSIONS
-    # =========================================================================
