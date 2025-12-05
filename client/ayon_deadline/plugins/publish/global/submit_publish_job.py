@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """Submit publishing job to farm."""
 import os
 import json
