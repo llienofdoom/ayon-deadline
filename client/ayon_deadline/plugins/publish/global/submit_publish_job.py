@@ -423,6 +423,7 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
             instance, render_job, instances, rootless_metadata_path
         )
 
+        
         # LUMA DENOISE: Inject denoise data to instances if enabled
         self._inject_denoise_data_to_instances(instance, instances)
 
@@ -623,11 +624,18 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
         This handles updating the staging directory and file paths
         for instances when denoise workflow is enabled.
 
+        LUMA DENOISE: This is Houdini-specific functionality.
+        For other DCCs, it falls back to the original behavior.
+
         Args:
             instance: The original publish instance
             instances: List of instances created from skeleton
         """
-        denoise = instance.data.get("denoise", True)
+        # Only apply denoise logic for Houdini
+        host_name = instance.context.data.get("hostName")
+        is_houdini = host_name == "houdini"
+
+        denoise = instance.data.get("denoise", False) if is_houdini else False
         if not denoise:
             # Original code path - just inject deadline data
             for inst in instances:
@@ -637,7 +645,18 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
 
         # Denoise is enabled - update staging dirs and files
         project_settings = instance.context.data["project_settings"]
-        denoise_settings = project_settings["luma-denoise"]
+        denoise_settings = project_settings.get("luma-denoise")
+
+        if not denoise_settings:
+            self.log.warning(
+                "Denoise is enabled but luma-denoise settings not found. "
+                "Falling back to default behavior."
+            )
+            # Fall back to default behavior
+            for inst in instances:
+                inst["deadline"] = deepcopy(instance.data["deadline"])
+                inst["deadline"].pop("job_info")
+            return
 
         for inst in instances:
             inst["deadline"] = deepcopy(instance.data["deadline"])
@@ -673,6 +692,9 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
     def _check_denoise_dependencies(self, instance):
         """Check for denoise/OIIO job dependencies.
 
+        LUMA DENOISE: This is Houdini-specific functionality.
+        For other DCCs, it returns None to use default behavior.
+
         Returns the appropriate dependency job ID for denoise workflow.
         Priority:
         1. OIIO combine job (if exists)
@@ -685,6 +707,11 @@ class ProcessSubmittedJobOnFarm(pyblish.api.InstancePlugin,
         Returns:
             list or None: List with single job ID, or None
         """
+        # Only check denoise dependencies for Houdini
+        host_name = instance.context.data.get("hostName")
+        if host_name != "houdini":
+            return None
+
         # Check for OIIO combine job (highest priority for denoise workflow)
         oiio_job_id = instance.data.get("oiio_combine_job_id")
         if oiio_job_id:
