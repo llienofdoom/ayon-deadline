@@ -136,6 +136,17 @@ class AbstractSubmitDeadline(
             render_job_info = self.get_job_info(
                 job_info=job_info, dependency_job_ids=[job_id])
             render_plugin_info = self.get_plugin_info(job_type="render")
+
+            # Apply additional plugin info data to render job as well
+            # Only for Houdini USD renders (HuskStandalone)
+            self.log.debug(f"Render job plugin: {render_job_info.Plugin}")
+            plugin_info_data = instance.data["deadline"].get("plugin_info_data")
+            self.log.debug(f"Plugin info data: {plugin_info_data}")
+            if render_job_info.Plugin == "HuskStandalone" and plugin_info_data:
+                for key, value in plugin_info_data.items():
+                    render_plugin_info[key] = value
+                    #self.log.info(f"Added to render plugin info: {key}={value}")
+
             payload = self.assemble_payload(
                 job_info=render_job_info,
                 plugin_info=render_plugin_info
